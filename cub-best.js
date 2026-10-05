@@ -26,7 +26,7 @@
     window.plugin_cub_best_ready = true;
 
     var PLUGIN  = 'cub_best';
-    var VERSION = '1.0.3';
+    var VERSION = '1.0.4';
 
     // домен CUB из манифеста Lampa; фолбэк — на случай экзотических сборок
     function cubDomain() {
@@ -128,7 +128,11 @@
         var rating = Math.round((p.avg * p.m + sum) / (p.m + total) * 10) / 10;
         if (rating > 10) rating = 10;
 
-        return { rating: rating, total: total, median: median };
+        // Доля восторгов (🔥+👍) в процентах — мера консенсуса: меньше
+        // 60% значит сообщество раскололось (пресет "Неоднозначно")
+        var positive = Math.round((((counts.fire || 0) + (counts.nice || 0)) / total) * 100);
+
+        return { rating: rating, total: total, median: median, positive: positive };
     }
 
     // известные типы реакций (значения-эмодзи остаются как справочник);
@@ -192,7 +196,7 @@
             var data = { f: 1 };
             var calc = json && json.result ? calcRating(json.result, key.indexOf('tv_') === 0) : null;
 
-            if (calc) data = { r: calc.rating, n: calc.total, d: calc.median };
+            if (calc) data = { r: calc.rating, n: calc.total, d: calc.median, p: calc.positive };
 
             done(key, data);
         }, function () {
@@ -422,7 +426,7 @@
 
             if (live) {
                 var calc = calcRating(live, key.indexOf('tv_') === 0);
-                var data = calc ? { r: calc.rating, n: calc.total, d: calc.median } : { f: 1 };
+                var data = calc ? { r: calc.rating, n: calc.total, d: calc.median, p: calc.positive } : { f: 1 };
 
                 cacheSet(key, data);
                 draw(data);
@@ -448,6 +452,10 @@
     //            (диапазон, а не порог — шедевры живут в master);
     //   weird  — самое странное: фильмы, над которыми сообщество
     //            задумалось (медианная реакция 🤔)
+    // Порог консенсуса для "Неоднозначно": восторгов (🔥+👍) меньше этой
+    // доли процентов — мнения разделились
+    var WEIRD_POSITIVE_MAX = 60;
+
     var PRESETS = {
         master: { min_rating: 8.0, max_rating: 11,  min_votes: 100, median: null },
         solid:  { min_rating: 7.0, max_rating: 11,  min_votes: 50,  median: null },
@@ -952,6 +960,7 @@
                         item.cub_rating = res.r || 0;
                         item.cub_votes  = res.n || 0;
                         item.cub_median = res.d || '';
+                        item.cub_positive = (typeof res.p === 'number') ? res.p : null;
 
                         left--;
                         step();
@@ -963,7 +972,14 @@
                 var ready = list.filter(function (a) {
                     if (a.cub_votes < cfg.min_votes) return false;
                     if (a.cub_rating < cfg.min_rating || a.cub_rating >= cfg.max_rating) return false;
-                    if (cfg.median && a.cub_median !== cfg.median) return false;
+                    if (cfg.median) {
+                        // "неоднозначно" = срединная реакция 🤔 ИЛИ раскол:
+                        // восторгов меньше 60% (старые записи кэша без поля
+                        // p проходят только по медиане — рассосётся за сутки)
+                        var split = a.cub_positive !== null && a.cub_positive < WEIRD_POSITIVE_MAX;
+
+                        if (a.cub_median !== cfg.median && !split) return false;
+                    }
 
                     // "главный жанр": выбранный жанр должен стоять первым
                     // в списке жанров TMDB (порядок там — по значимости)
@@ -1170,7 +1186,7 @@
         var PRESET_DESCR = {
             master: 'Рейтинг CUB 8.0 и выше, не меньше 100 реакций. Жёсткий фестивальный отбор: только проверенное величие',
             solid:  'Рейтинг CUB 7.0 и выше, не меньше 50 реакций. Сделано на совесть — от крепкого кино до шедевров',
-            weird:  'Фильмы, где срединная реакция зрителей — «задумался» 🤔: не восторг и не провал, а озадаченность. Рейтинг 6.0 и выше, не меньше 20 реакций'
+            weird:  'Спорное кино, расколовшее зрителей: восторгов меньше 60%, либо срединная реакция — «задумался» 🤔. Рейтинг 6.0 и выше, не меньше 20 реакций'
         };
 
         var preset_row = null;
