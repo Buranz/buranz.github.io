@@ -26,7 +26,7 @@
     window.plugin_cub_best_ready = true;
 
     var PLUGIN  = 'cub_best';
-    var VERSION = '1.0.6';
+    var VERSION = '1.0.8';
 
     // домен CUB из манифеста Lampa; фолбэк — на случай экзотических сборок
     function cubDomain() {
@@ -611,7 +611,7 @@
             { id: '',     title: 'Все жанры',      icon: 'grid' },
             { id: 35,     title: 'Комедии',        icon: 'smile' },
             { id: 18,     title: 'Драмы',          icon: 'drama' },
-            { id: 28,     title: 'Боевики',        icon: 'aim' },
+            { id: 28,     title: 'Боевики',        icon: 'aim', only: '28,18,80,53,12' },
             { id: 53,     title: 'Триллеры',       icon: 'pulse', without: '27,14' },
             { id: 27,     title: 'Ужасы',          icon: 'skull' },
             { id: 878,    title: 'Фантастика',     icon: 'rocket', without: '14' },
@@ -695,7 +695,7 @@
 
             var cfg = presetConfig();
             var first_only = !!(pref('cub_best_first_genre') && params.genre_id);
-            var base_key  = [type, params.genre_id || '', params.without || '', params.kw || '', batch, pref('cub_best_preset'), cfg.min_rating, cfg.max_rating, cfg.min_votes, cfg.median || '', first_only ? 1 : 0].join('|');
+            var base_key  = [type, params.genre_id || '', params.without || '', params.only || '', params.kw || '', batch, pref('cub_best_preset'), cfg.min_rating, cfg.max_rating, cfg.min_votes, cfg.median || '', first_only ? 1 : 0].join('|');
             var cache_key = base_key + '|' + page;
             var hit = list_cache[cache_key];
 
@@ -969,7 +969,26 @@
             }
 
             function finish(list) {
+                // Белый список тегов жанра (поле only в GENRES): тайтл
+                // проходит, только если ВСЕ его жанры из списка — отсев
+                // примесей вроде фэнтези-экшена в "Боевиках"
+                var only_map = null;
+
+                if (params.only) {
+                    only_map = {};
+
+                    String(params.only).split(',').forEach(function (id) {
+                        only_map[id] = 1;
+                    });
+                }
+
                 var ready = list.filter(function (a) {
+                    if (only_map && a.genre_ids) {
+                        for (var gi = 0; gi < a.genre_ids.length; gi++) {
+                            if (!only_map[a.genre_ids[gi]]) return false;
+                        }
+                    }
+
                     if (a.cub_votes < cfg.min_votes) return false;
                     if (a.cub_rating < cfg.min_rating || a.cub_rating >= cfg.max_rating) return false;
                     if (cfg.median) {
@@ -1098,6 +1117,7 @@
             cub_type: type,
             genre_id: genre.id,
             without: buildWithout(genre),
+            only: genre.only || '',
             genre_title: genre.genre_title || genre.title || '',
             kw: genre.kw || '',
             page: 1
@@ -1108,7 +1128,7 @@
         Lampa.Select.show({
             title: 'Жанр',
             items: GENRES[type].map(function (g) {
-                return { title: gIcon(g.icon) + g.title, id: g.id, without: g.without, kw: g.kw, genre_title: g.title };
+                return { title: gIcon(g.icon) + g.title, id: g.id, without: g.without, only: g.only, kw: g.kw, genre_title: g.title };
             }),
             onSelect: function (a) {
                 openCatalog(type, a);
