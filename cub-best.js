@@ -26,7 +26,7 @@
     window.plugin_cub_best_ready = true;
 
     var PLUGIN  = 'cub_best';
-    var VERSION = '1.0.11';
+    var VERSION = '1.0.12';
 
     // домен CUB из манифеста Lampa; фолбэк — на случай экзотических сборок
     function cubDomain() {
@@ -569,6 +569,23 @@
     // что глубже этой отметки, отвечаем мгновенно и пусто сами
     var exhausted_cache = {};
 
+    // Lampa запоминает total_pages компонента один раз (onBuild), и из
+    // него строятся и «Навигация», и упреждающие запросы. Когда реальный
+    // горизонт узнан («вычерпано»), честно подкручиваем поле на живом
+    // компоненте: список страниц в «Навигации» сжимается до фактических,
+    // запросы за горизонт прекращаются. Доступ легальный: activity.component
+    function syncTotalPages(real) {
+        try {
+            var act = Lampa.Activity.active();
+            var comp = act && act.activity && act.activity.component;
+
+            if (comp && typeof comp.total_pages === 'number' && comp.total_pages > real) {
+                comp.total_pages = real;
+            }
+        }
+        catch (e) { /* незнакомая сборка Lampa — просто живём без подкрутки */ }
+    }
+
     // Последняя отданная страница по каждому ключу каталога: отличаем
     // упреждающий запрос Lampa (ровно следующая страница — его паркуем
     // за "Загрузить ещё") от явного прыжка через штатную "Навигацию"
@@ -704,21 +721,24 @@
             var base_key  = [type, params.genre_id || '', params.without || '', params.only || '', params.kw || '', batch, pref('cub_best_preset'), cfg.min_rating, cfg.max_rating, cfg.min_votes, cfg.median || '', first_only ? 1 : 0].join('|');
             var cache_key = base_key + '|' + page;
             var hit = list_cache[cache_key];
+            var ex  = exhausted_cache[base_key];
 
             if (hit && Date.now() - hit.t < LIST_CACHE_TIME) {
                 console.log('CUB Лучшее', 'страница ' + page + ' из кэша');
 
                 last_served_cache[base_key] = page;
 
+                if (ex && isVisible()) syncTotalPages(ex);
+
                 return oncomplite(hit.data);
             }
-
-            var ex = exhausted_cache[base_key];
 
             if (ex && page > ex) {
                 console.log('CUB Лучшее', 'жанр вычерпан на странице ' + ex + ' — пустой ответ для страницы ' + page);
 
-                return oncomplite({ results: [], page: page, total_pages: page });
+                if (isVisible()) syncTotalPages(ex);
+
+                return oncomplite({ results: [], page: page, total_pages: ex });
             }
 
             // Активна ли сейчас именно ЭТА страница каталога. Сравнивать по
@@ -1027,6 +1047,8 @@
                 if (exhausted) {
                     exhausted_cache[base_key] = Math.min(exhausted_cache[base_key] || page, page);
 
+                    if (isVisible()) syncTotalPages(exhausted_cache[base_key]);
+
                     console.log('CUB Лучшее', 'жанр вычерпан: страница ' + page + ' дала ' + ready.length + ' тайтлов');
                 }
 
@@ -1069,7 +1091,7 @@
                 var payload = {
                     results: ready,
                     page: page,
-                    total_pages: exhausted ? page : Math.max(page, Math.ceil(total_tmdb / batch))
+                    total_pages: exhausted ? page : (exhausted_cache[base_key] || Math.max(page, Math.ceil(total_tmdb / batch)))
                 };
 
                 list_cache[cache_key] = { t: Date.now(), data: payload };
