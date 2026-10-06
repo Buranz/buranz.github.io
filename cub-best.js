@@ -26,7 +26,7 @@
     window.plugin_cub_best_ready = true;
 
     var PLUGIN  = 'cub_best';
-    var VERSION = '1.0.9';
+    var VERSION = '1.0.11';
 
     // домен CUB из манифеста Lampa; фолбэк — на случай экзотических сборок
     function cubDomain() {
@@ -569,6 +569,12 @@
     // что глубже этой отметки, отвечаем мгновенно и пусто сами
     var exhausted_cache = {};
 
+    // Последняя отданная страница по каждому ключу каталога: отличаем
+    // упреждающий запрос Lampa (ровно следующая страница — его паркуем
+    // за "Загрузить ещё") от явного прыжка через штатную "Навигацию"
+    // (любая другая страница — грузим сразу, случайный доступ честный)
+    var last_served_cache = {};
+
     // Размер порции настраивается (cub_best_batch, страниц TMDB по 20
     // тайтлов): большая порция = сортировка одним куском без "пилы",
     // но на слабых ТВ рендер 500 плиток может тормозить.
@@ -701,6 +707,8 @@
 
             if (hit && Date.now() - hit.t < LIST_CACHE_TIME) {
                 console.log('CUB Лучшее', 'страница ' + page + ' из кэша');
+
+                last_served_cache[base_key] = page;
 
                 return oncomplite(hit.data);
             }
@@ -877,8 +885,14 @@
                     $('body').removeClass('cub--loading');
                 }
 
-                if (result) oncomplite(result);
-                else onerror();
+                if (result) return oncomplite(result);
+
+                // "ничего не нашлось" — не ошибка, а честная пустая
+                // страница: onerror() у category_full зацикливает
+                // повторные запросы (известная грабля Lampa)
+                exhausted_cache[base_key] = Math.min(exhausted_cache[base_key] || page, page);
+
+                oncomplite({ results: [], page: page, total_pages: page });
             }
 
             function pageUrl(p) {
@@ -1060,6 +1074,8 @@
 
                 list_cache[cache_key] = { t: Date.now(), data: payload };
 
+                last_served_cache[base_key] = page;
+
                 done(payload);
             }
 
@@ -1088,7 +1104,7 @@
             // запрос и не повторяет его — просто паркуем поиск до нажатия:
             // после него результаты приедут штатным resolve, и Lampa сама
             // дорисует их в сетку
-            if (page > 1 && isVisible()) {
+            if (page > 1 && page === (last_served_cache[base_key] || 0) + 1 && isVisible()) {
                 pending_more = { run: run };
 
                 return;
@@ -1297,6 +1313,7 @@
                 persisted = Lampa.Storage.cache(CACHE_KEY, CACHE_MAX, {});
                 list_cache = {};
                 exhausted_cache = {};
+                last_served_cache = {};
 
                 Lampa.Noty.show('Кэш «CUB Лучшее» очищен');
             }
