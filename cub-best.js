@@ -26,7 +26,7 @@
     window.plugin_cub_best_ready = true;
 
     var PLUGIN  = 'cub_best';
-    var VERSION = '1.0.12';
+    var VERSION = '1.0.13';
 
     // домен CUB из манифеста Lampa; фолбэк — на случай экзотических сборок
     function cubDomain() {
@@ -579,11 +579,24 @@
             var act = Lampa.Activity.active();
             var comp = act && act.activity && act.activity.component;
 
-            if (comp && typeof comp.total_pages === 'number' && comp.total_pages > real) {
+            if (comp && typeof comp.total_pages === 'number' && comp.total_pages !== real) {
                 comp.total_pages = real;
             }
         }
         catch (e) { /* незнакомая сборка Lampa — просто живём без подкрутки */ }
+    }
+
+    // Максимальная достигнутая страница по ключу каталога — чтобы
+    // «Навигация» показывала подряд всё найденное (листание назад не
+    // сжимает список)
+    var max_page_cache = {};
+
+    function totalFor(base_key) {
+        var ex = exhausted_cache[base_key];
+
+        if (ex) return ex;
+
+        return (max_page_cache[base_key] || 1) + 1;
     }
 
     // Последняя отданная страница по каждому ключу каталога: отличаем
@@ -727,8 +740,9 @@
                 console.log('CUB Лучшее', 'страница ' + page + ' из кэша');
 
                 last_served_cache[base_key] = page;
+                max_page_cache[base_key] = Math.max(max_page_cache[base_key] || 1, page);
 
-                if (ex && isVisible()) syncTotalPages(ex);
+                if (isVisible()) syncTotalPages(totalFor(base_key));
 
                 return oncomplite(hit.data);
             }
@@ -736,7 +750,7 @@
             if (ex && page > ex) {
                 console.log('CUB Лучшее', 'жанр вычерпан на странице ' + ex + ' — пустой ответ для страницы ' + page);
 
-                if (isVisible()) syncTotalPages(ex);
+                if (isVisible()) syncTotalPages(totalFor(base_key));
 
                 return oncomplite({ results: [], page: page, total_pages: ex });
             }
@@ -1044,10 +1058,10 @@
                 // жанр почти вычерпан — глубже не ходим
                 var exhausted = ready.length < CATALOG_PAGE_YIELD;
 
+                max_page_cache[base_key] = Math.max(max_page_cache[base_key] || 1, page);
+
                 if (exhausted) {
                     exhausted_cache[base_key] = Math.min(exhausted_cache[base_key] || page, page);
-
-                    if (isVisible()) syncTotalPages(exhausted_cache[base_key]);
 
                     console.log('CUB Лучшее', 'жанр вычерпан: страница ' + page + ' дала ' + ready.length + ' тайтлов');
                 }
@@ -1091,12 +1105,14 @@
                 var payload = {
                     results: ready,
                     page: page,
-                    total_pages: exhausted ? page : (exhausted_cache[base_key] || Math.max(page, Math.ceil(total_tmdb / batch)))
+                    total_pages: totalFor(base_key)
                 };
 
                 list_cache[cache_key] = { t: Date.now(), data: payload };
 
                 last_served_cache[base_key] = page;
+
+                if (isVisible()) syncTotalPages(totalFor(base_key));
 
                 done(payload);
             }
@@ -1336,6 +1352,7 @@
                 list_cache = {};
                 exhausted_cache = {};
                 last_served_cache = {};
+                max_page_cache = {};
 
                 Lampa.Noty.show('Кэш «CUB Лучшее» очищен');
             }
