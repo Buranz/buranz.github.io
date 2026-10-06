@@ -26,7 +26,7 @@
     window.plugin_cub_best_ready = true;
 
     var PLUGIN  = 'cub_best';
-    var VERSION = '1.0.5';
+    var VERSION = '1.0.6';
 
     // домен CUB из манифеста Lampa; фолбэк — на случай экзотических сборок
     function cubDomain() {
@@ -1011,9 +1011,21 @@
                     return done(null);
                 }
 
+                // Двухъярусная сортировка: сначала тайтлы, у которых
+                // выбранный жанр стоит ПЕРВЫМ тегом TMDB (обычно это
+                // доминирующий жанр) — иначе "Боевики" возглавляет
+                // "Властелин колец" с экшеном третьим тегом. Внутри
+                // ярусов — по рейтингу, при равенстве по числу голосов
+                var want_genre = String(params.genre_id || '');
+
+                function primaryGenre(a) {
+                    return want_genre && a.genre_ids && String(a.genre_ids[0]) === want_genre ? 1 : 0;
+                }
+
                 ready.sort(function (a, b) {
-                    // при равном рейтинге выше тот, кого оценило больше людей
-                    return (b.cub_rating - a.cub_rating) || (b.cub_votes - a.cub_votes);
+                    return (primaryGenre(b) - primaryGenre(a)) ||
+                        (b.cub_rating - a.cub_rating) ||
+                        (b.cub_votes - a.cub_votes);
                 });
 
                 // псевдо-тайтл "Загрузить ещё" в конец выдачи (см. decorateMoreCard)
@@ -1244,7 +1256,7 @@
         Lampa.SettingsApi.addParam({
             component: PLUGIN,
             param: { name: 'cub_best_first_genre', type: 'trigger', default: DEFAULTS.cub_best_first_genre },
-            field: { name: 'Только главный жанр', description: 'Показывать лишь тайтлы, у которых выбранный жанр стоит первым в TMDB — обычно это доминирующий жанр. Чище по жанру, но выдача заметно короче: «Молчание ягнят» уедет из триллеров в криминал' }
+            field: { name: 'Только главный жанр', description: 'Жёсткий режим: показывать лишь тайтлы, у которых выбранный жанр стоит первым в TMDB. Без него такие тайтлы не вырезаются, а опускаются ниже чистых представителей жанра' }
         });
 
         Lampa.SettingsApi.addParam({
