@@ -26,7 +26,7 @@
     window.plugin_cub_best_ready = true;
 
     var PLUGIN  = 'cub_best';
-    var VERSION = '1.0.13';
+    var VERSION = '1.0.14';
 
     // домен CUB из манифеста Lampa; фолбэк — на случай экзотических сборок
     function cubDomain() {
@@ -459,7 +459,7 @@
     var PRESETS = {
         master: { min_rating: 8.0, max_rating: 11,  min_votes: 100, median: null },
         solid:  { min_rating: 7.0, max_rating: 11,  min_votes: 50,  median: null },
-        weird:  { min_rating: 6.0, max_rating: 11,  min_votes: 20,  median: 'think' }
+        weird:  { min_rating: 0,   max_rating: 11,  min_votes: 20,  median: null }
     };
 
     function presetConfig() {
@@ -1279,7 +1279,7 @@
         var PRESET_DESCR = {
             master: 'Рейтинг CUB 8.0 и выше, не меньше 100 реакций. Жёсткий фестивальный отбор: только проверенное величие',
             solid:  'Рейтинг CUB 7.0 и выше, не меньше 50 реакций. Сделано на совесть — от крепкого кино до шедевров',
-            weird:  'Рейтинг CUB 6.0 и выше, не меньше 20 реакций. Спорное кино, расколовшее зрителей: восторгов меньше 60%, либо срединная реакция — «задумался» 🤔'
+            weird:  'Без порога рейтинга: вся выдача от шедевров до хлама, не меньше 20 реакций. Листай сверху вниз — где-то по пути планка твоего вечера'
         };
 
         var preset_row = null;
