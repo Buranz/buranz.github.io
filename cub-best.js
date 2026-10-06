@@ -26,7 +26,7 @@
     window.plugin_cub_best_ready = true;
 
     var PLUGIN  = 'cub_best';
-    var VERSION = '1.0.8';
+    var VERSION = '1.0.9';
 
     // домен CUB из манифеста Lampa; фолбэк — на случай экзотических сборок
     function cubDomain() {
@@ -1161,7 +1161,14 @@
 
         item.on('hover:enter', openTypeSelect);
 
-        $('.menu .menu__list').eq(0).append(item);
+        // Вставляем вторым пунктом, сразу после «Главной» — раздел про
+        // выбор кино логично держать под рукой. Это только стартовая
+        // позиция: пользовательская сортировка меню (Редактировать)
+        // имеет приоритет и сохраняется
+        var first = $('.menu .menu__list').eq(0).find('.menu__item').eq(0);
+
+        if (first.length) first.after(item);
+        else $('.menu .menu__list').eq(0).append(item);
     }
 
     // ---------- настройки ----------
