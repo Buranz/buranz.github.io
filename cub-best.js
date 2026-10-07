@@ -26,7 +26,7 @@
     window.plugin_cub_best_ready = true;
 
     var PLUGIN  = 'cub_best';
-    var VERSION = '1.0.17';
+    var VERSION = '1.0.18';
 
     // домен CUB из манифеста Lampa; фолбэк — на случай экзотических сборок
     function cubDomain() {
@@ -42,6 +42,10 @@
     }
 
     var ICON_STAR = starIcon('currentColor');
+
+    // Контурная звезда для верхней панели — в ряду с лупой и колокольчиком
+    // залитая выбивается (замечание Павла из чата), иконки шапки тонкие
+    var ICON_STAR_OUTLINE = '<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M12 2l2.9 6.3 6.9.8-5.1 4.7 1.4 6.8L12 17.3 5.9 20.6l1.4-6.8L2.2 9.1l6.9-.8L12 2z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg>';
 
     // ---------- настройки по умолчанию ----------
 
@@ -398,7 +402,7 @@
 
         if (existing.length) return;
 
-        var btn = $('<div class="head__action selector cub-best--head">' + ICON_STAR + '</div>');
+        var btn = $('<div class="head__action selector cub-best--head">' + ICON_STAR_OUTLINE + '</div>');
 
         btn.on('hover:enter hover:click hover:touch', openTypeSelect);
 
