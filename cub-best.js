@@ -26,7 +26,7 @@
     window.plugin_cub_best_ready = true;
 
     var PLUGIN  = 'cub_best';
-    var VERSION = '1.0.19';
+    var VERSION = '1.0.20';
 
     // домен CUB из манифеста Lampa; фолбэк — на случай экзотических сборок
     function cubDomain() {
@@ -54,6 +54,7 @@
         cub_best_full: true,    // бейдж CUB на экране деталей
         cub_best_min_votes: 50, // минимум реакций для показа рейтинга (плитки и карточка)
         cub_best_head: true,    // кнопка-звезда в верхней панели, рядом с поиском
+        cub_best_years: '',     // диапазон лет выпуска ('' = все годы)
         cub_best_batch: 25,     // глубина поиска: страниц TMDB (по 20 тайтлов) на страницу раздела
         cub_best_preset: 'master', // режим отбора каталога (см. PRESETS)
         cub_best_first_genre: false // показывать только тайтлы, где выбранный жанр стоит первым
@@ -497,6 +498,21 @@
         weird:  { min_rating: 0,   max_rating: 11,  min_votes: 20,  median: null }
     };
 
+    // Диапазоны лет выпуска: фильтр уходит в TMDB discover, так что вся
+    // «Глубина поиска» тратится на выбранную эпоху (фич-реквест из чата:
+    // не листать одну и ту же классику каждый раз)
+    var YEAR_RANGES = {
+        y2020: { gte: '2020-01-01', lte: '' },
+        y2010: { gte: '2010-01-01', lte: '2019-12-31' },
+        y2000: { gte: '2000-01-01', lte: '2009-12-31' },
+        y1990: { gte: '1990-01-01', lte: '1999-12-31' },
+        y1980: { gte: '1980-01-01', lte: '1989-12-31' },
+        y1970: { gte: '1970-01-01', lte: '1979-12-31' },
+        y1960: { gte: '1960-01-01', lte: '1969-12-31' },
+        y1950: { gte: '1950-01-01', lte: '1959-12-31' },
+        old:   { gte: '',           lte: '1949-12-31' }
+    };
+
     function presetConfig() {
         return PRESETS[pref('cub_best_preset')] || PRESETS.master;
     }
@@ -647,6 +663,7 @@
     // Моно-линейные SVG-иконки жанров: системные эмодзи на платформах
     // выглядят по-разному, свои иконки — одинаково везде
     var GICON = {
+        calendar: '<rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/>',
         grid:    '<rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/>',
         smile:   '<circle cx="12" cy="12" r="8.5"/><path d="M8.5 14c1 1.4 2.3 2.1 3.5 2.1s2.5-.7 3.5-2.1"/><path d="M9 9.5h.01M15 9.5h.01"/>',
         drama:   '<path d="M5 4h14v7c0 4.5-3 8-7 8s-7-3.5-7-8z"/><path d="M9 9h.01M15 9h.01"/><path d="M9 14.5c1-1 2-1.4 3-1.4s2 .4 3 1.4"/>',
@@ -766,7 +783,7 @@
 
             var cfg = presetConfig();
             var first_only = !!(pref('cub_best_first_genre') && params.genre_id);
-            var base_key  = [type, params.genre_id || '', params.without || '', params.only || '', params.kw || '', batch, pref('cub_best_preset'), cfg.min_rating, cfg.max_rating, cfg.min_votes, cfg.median || '', first_only ? 1 : 0].join('|');
+            var base_key  = [type, params.genre_id || '', params.without || '', params.only || '', params.kw || '', batch, pref('cub_best_preset'), cfg.min_rating, cfg.max_rating, cfg.min_votes, cfg.median || '', pref('cub_best_years') || '', first_only ? 1 : 0].join('|');
             var cache_key = base_key + '|' + page;
             var hit = list_cache[cache_key];
             var ex  = exhausted_cache[base_key];
@@ -970,6 +987,16 @@
                 if (params.genre_id) u += '&with_genres=' + params.genre_id;
                 if (params.without)  u += '&without_genres=' + params.without;
                 if (kw_id)           u += '&with_keywords=' + kw_id;
+
+                var yr = YEAR_RANGES[pref('cub_best_years')];
+
+                if (yr) {
+                    // у фильмов и сериалов разные поля даты
+                    var fld = type === 'tv' ? 'first_air_date' : 'primary_release_date';
+
+                    if (yr.gte) u += '&' + fld + '.gte=' + yr.gte;
+                    if (yr.lte) u += '&' + fld + '.lte=' + yr.lte;
+                }
 
                 return tmdbUrl(u);
             }
@@ -1213,14 +1240,44 @@
         });
     }
 
-    function openGenreSelect(type) {
+    // Подписи эпох для пункта «Годы» в списке жанров — те же значения,
+    // что в настройке «Годы выпуска» (это одна и та же настройка)
+    var YEAR_TITLES = { '': 'Все', y2020: '2020', y2010: '2010', y2000: '2000', y1990: '1990', y1980: '1980', y1970: '1970', y1960: '1960', y1950: '1950', old: 'До 1950' };
+
+    function openYearSelect(type) {
+        var current = pref('cub_best_years') || '';
+
         Lampa.Select.show({
-            title: 'Жанр',
-            items: GENRES[type].map(function (g) {
-                return { title: gIcon(g.icon) + g.title, id: g.id, without: g.without, only: g.only, kw: g.kw, genre_title: g.title };
+            title: 'Годы выпуска',
+            items: Object.keys(YEAR_TITLES).map(function (k) {
+                return { title: YEAR_TITLES[k] + (k === current ? '  ✓' : ''), year_key: k };
             }),
             onSelect: function (a) {
-                openCatalog(type, a);
+                Lampa.Storage.set('cub_best_years', a.year_key);
+                openGenreSelect(type);
+            },
+            onBack: function () {
+                openGenreSelect(type);
+            }
+        });
+    }
+
+    function openGenreSelect(type) {
+        var year_key = pref('cub_best_years') || '';
+
+        var items = [{
+            title: gIcon('calendar') + 'Годы: ' + YEAR_TITLES[year_key],
+            is_years: true
+        }].concat(GENRES[type].map(function (g) {
+            return { title: gIcon(g.icon) + g.title, id: g.id, without: g.without, only: g.only, kw: g.kw, genre_title: g.title };
+        }));
+
+        Lampa.Select.show({
+            title: 'Жанр',
+            items: items,
+            onSelect: function (a) {
+                if (a.is_years) openYearSelect(type);
+                else openCatalog(type, a);
             },
             onBack: openTypeSelect
         });
@@ -1286,6 +1343,17 @@
             param: { name: 'cub_best_head', type: 'trigger', default: DEFAULTS.cub_best_head },
             field: { name: 'Кнопка в верхней панели', description: 'Звезда «CUB Лучшее» рядом с поиском — раздел в один клик' },
             onChange: syncHeadButton
+        });
+
+        Lampa.SettingsApi.addParam({
+            component: PLUGIN,
+            param: {
+                name: 'cub_best_years',
+                type: 'select',
+                values: { '': 'Все годы', y2020: '2020', y2010: '2010', y2000: '2000', y1990: '1990', y1980: '1980', y1970: '1970', y1960: '1960', y1950: '1950', old: 'До 1950' },
+                default: DEFAULTS.cub_best_years
+            },
+            field: { name: 'Годы выпуска', description: 'Каталог «CUB Лучшее» ищет только в выбранной эпохе — вся глубина поиска тратится на неё. Удобно, чтобы не листать одну и ту же классику' }
         });
 
         Lampa.SettingsApi.addParam({
