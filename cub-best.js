@@ -26,7 +26,7 @@
     window.plugin_cub_best_ready = true;
 
     var PLUGIN  = 'cub_best';
-    var VERSION = '1.0.20';
+    var VERSION = '1.0.21';
 
     // домен CUB из манифеста Lampa; фолбэк — на случай экзотических сборок
     function cubDomain() {
@@ -240,7 +240,6 @@
 
     function cardKey(data) {
         if (!data || !data.id) return null;
-        if (data.cub_more) return null; // псевдо-тайтл "Загрузить ещё"
 
         // только фильмы/сериалы с TMDB id
         if (data.media_type && data.media_type !== 'movie' && data.media_type !== 'tv') return null;
@@ -322,8 +321,6 @@
     function watchCard(el) {
         // броня: странный скин или вёрстка не должны уронить Lampa
         try {
-            if (el.card_data && el.card_data.cub_more) return decorateMoreCard(el);
-
             stripTmdbVote(el);
 
             if (intersection) intersection.observe(el);
@@ -527,91 +524,38 @@
     var list_cache = {};
     var LIST_CACHE_TIME = 60 * 60 * 1000; // час: дольше любого фильма между возвратами
 
-    // Отложенный поиск следующей страницы: Lampa ждёт ответ на свой
-    // упреждающий запрос и не повторяет его — ответ отпускается плиткой
-    // "Загрузить ещё"
-    var pending_more = null;
 
-    // Плитка "Загрузить ещё" приходит в данных как псевдо-тайтл: Lampa сама
-    // строит для него полноценную карточку (фокус, скролл и место в сетке —
-    // штатные), а здесь она получает фирменный вид и перехват нажатия
-    // Одноразовый CSS плитки "Загрузить ещё": градиент как у прогресс-бара,
-    // прячем ленивый постер и чужие бейджи, чтобы не перекрывали заливку
-    function ensureMoreCss() {
-        if (document.getElementById('cub-more-style')) return;
+    // Согласие на догрузку. Отказ — с кулдауном: Lampa после пустого
+    // ответа может сразу переспросить, не зудим диалогом
+    var refuse_until = 0;
 
-        var st = document.createElement('style');
+    function confirmMore(yes, no) {
+        if (Date.now() < refuse_until) return no();
 
-        st.id = 'cub-more-style';
-        st.textContent =
-            '[data-cub-more] .card__view{background:linear-gradient(135deg,#4ade80,#9cfc87) !important;overflow:hidden !important}' +
-            '[data-cub-more] img{display:none !important}' +
-            '[data-cub-more] .card__type,[data-cub-more] .card__vote,[data-cub-more] .card__quality,[data-cub-more] .card__icons,[data-cub-more] .card__marker{display:none !important}' +
-            '[data-cub-more].focus .card__view,[data-cub-more].hover .card__view{box-shadow:0 0 0 0.22em rgba(0,0,0,0.85), 0 0 0 0.5em #fff !important}';
+        var enabled = Lampa.Controller.enabled();
+        var back = enabled && enabled.name ? enabled.name : 'content';
 
-        document.head.appendChild(st);
-    }
+        Lampa.Select.show({
+            title: 'CUB Лучшее',
+            items: [
+                { title: 'Загрузить ещё', subtitle: 'Поиск следующей порции — может занять время', v: 1 },
+                { title: 'Пока хватит', v: 0 }
+            ],
+            onSelect: function (a) {
+                Lampa.Controller.toggle(back);
 
-    function decorateMoreCard(el) {
-        if (el.getAttribute('data-cub-more')) return;
-        el.setAttribute('data-cub-more', '1');
-
-        ensureMoreCss();
-
-        var view = el.querySelector('.card__view');
-
-        if (view) {
-            // скругление — как у живых соседних карточек этого скина
-            var radius = '1em';
-            var sample = document.querySelector('.card:not([data-cub-more]) .card__view, .card:not([data-cub-more]) .card__img');
-
-            if (sample) {
-                var r = getComputedStyle(sample).borderRadius;
-                if (r && r !== '0px') radius = r;
+                if (a.v) yes();
+                else {
+                    refuse_until = Date.now() + 1500;
+                    no();
+                }
+            },
+            onBack: function () {
+                Lampa.Controller.toggle(back);
+                refuse_until = Date.now() + 1500;
+                no();
             }
-
-            view.style.setProperty('border-radius', radius, 'important');
-
-            // Начинку карточки НЕ сносим (Lampa пишет в card__icons-inner при
-            // каждом показе — её отсутствие роняет приложение), а накрываем
-            // своим слоем; оригиналы спрятаны через CSS
-            view.insertAdjacentHTML('beforeend',
-                '<div style="position:absolute;top:0;left:0;right:0;bottom:0;display:flex;align-items:center;justify-content:center;z-index:2">' +
-                '<div style="font-size:4em;font-weight:700;color:#000;line-height:1">+</div>' +
-                '</div>');
-        }
-
-        hookMoreEnter();
-    }
-
-    // Нажатие на псевдо-плитку перехватываем на фазе погружения: Lampa
-    // рассылает enter НАТИВНЫМ DOM-событием, и штатный обработчик карточки
-    // (addEventListener) открыл бы full несуществующего фильма с вечным
-    // стробберем. Capture на документе срабатывает раньше и глушит его
-    var more_enter_hooked = false;
-
-    function hookMoreEnter() {
-        if (more_enter_hooked) return;
-        more_enter_hooked = true;
-
-        document.addEventListener('hover:enter', function (e) {
-            var el = e.target;
-
-            if (!el || !el.getAttribute || !el.getAttribute('data-cub-more')) return;
-
-            e.stopImmediatePropagation();
-            e.stopPropagation();
-
-            var p = pending_more;
-
-            // упреждающий запрос ещё не пришёл — просто игнорируем нажатие
-            if (!p) return;
-
-            pending_more = null;
-            el.style.display = 'none';
-
-            p.run();
-        }, true);
+        });
     }
 
     // На какой странице жанр вычерпался (ключ без номера страницы).
@@ -1159,11 +1103,6 @@
                         (b.cub_votes - a.cub_votes);
                 });
 
-                // псевдо-тайтл "Загрузить ещё" в конец выдачи (см. decorateMoreCard)
-                if (!exhausted) {
-                    ready.push({ cub_more: true, id: 'cub_more', title: 'Загрузить ещё', poster_path: '', release_date: '' });
-                }
-
                 var payload = {
                     results: ready,
                     page: page,
@@ -1199,13 +1138,18 @@
 
             } // конец run()
 
-            // Плитка "Загрузить ещё" уже стоит в конце сетки (пришла вместе
-            // с данными страницы). Lampa ждёт ответ на свой упреждающий
-            // запрос и не повторяет его — просто паркуем поиск до нажатия:
-            // после него результаты приедут штатным resolve, и Lampa сама
-            // дорисует их в сетку
+            // Следующая страница — долгий поиск, он не стартует без согласия.
+            // Диалог (не плитка в сетке: та разваливалась при перерисовках —
+            // v1.0.21) одинаково обслуживает докат до конца и прыжок через
+            // «Навигацию» на соседнюю страницу. Lampa ждёт ответ на свой
+            // запрос и не повторяет его, поэтому обе ветки отвечают честно:
+            // согласие — поиском, отказ — пустой страницей с total = page-1
             if (page > 1 && page === (last_served_cache[base_key] || 0) + 1 && isVisible()) {
-                pending_more = { run: run };
+                confirmMore(run, function () {
+                    if (isVisible()) syncTotalPages(page - 1);
+
+                    done({ results: [], page: page, total_pages: page - 1 });
+                });
 
                 return;
             }
