@@ -26,7 +26,7 @@
     window.plugin_cub_best_ready = true;
 
     var PLUGIN  = 'cub_best';
-    var VERSION = '1.0.14';
+    var VERSION = '1.0.17';
 
     // домен CUB из манифеста Lampa; фолбэк — на случай экзотических сборок
     function cubDomain() {
@@ -49,6 +49,7 @@
         cub_best_cards: true,   // рейтинг CUB на плитках
         cub_best_full: true,    // бейдж CUB на экране деталей
         cub_best_min_votes: 50, // минимум реакций для показа рейтинга (плитки и карточка)
+        cub_best_head: true,    // кнопка-звезда в верхней панели, рядом с поиском
         cub_best_batch: 25,     // глубина поиска: страниц TMDB (по 20 тайтлов) на страницу раздела
         cub_best_preset: 'master', // режим отбора каталога (см. PRESETS)
         cub_best_first_genre: false // показывать только тайтлы, где выбранный жанр стоит первым
@@ -261,7 +262,11 @@
             if (!document.body.contains(el)) return;
 
             var vote = el.querySelector('.card__vote');
-            var show = res.r && res.n >= pref('cub_best_min_votes');
+            // тайтл из каталога «CUB Лучшее» уже прошёл отбор пресета —
+            // его рейтинг показываем всегда, иначе в выдаче «каталога
+            // рейтингов» стоят плитки без цифры (рассинхрон порогов)
+            var from_catalog = data && typeof data.cub_votes === 'number';
+            var show = res.r && (from_catalog || res.n >= pref('cub_best_min_votes'));
 
             // рейтинга CUB нет (мало реакций / ошибка) — плитка без цифры
             if (!show) {
@@ -381,6 +386,28 @@
 
     // ---------- экран деталей (бейдж CUB рядом с TMDB) ----------
 
+    // Кнопка в верхней панели, рядом с поиском — раздел в один клик
+    // с самого быстрого места интерфейса (фич-реквест из чата)
+    function syncHeadButton() {
+        var existing = $('.head__action.cub-best--head');
+
+        if (!pref('cub_best_head')) {
+            existing.remove();
+            return;
+        }
+
+        if (existing.length) return;
+
+        var btn = $('<div class="head__action selector cub-best--head">' + ICON_STAR + '</div>');
+
+        btn.on('hover:enter hover:click hover:touch', openTypeSelect);
+
+        var search = $('.head__actions .open--search');
+
+        if (search.length) search.before(btn);
+        else $('.head__actions').append(btn);
+    }
+
     function startFull() {
         Lampa.Listener.follow('full', function (e) {
             if (e.type !== 'complite' || !pref('cub_best_full')) return;
@@ -397,7 +424,11 @@
             if (!line.length || line.find('.rate--cub').length) return;
 
             function draw(res) {
-                if (!res.r || res.n < pref('cub_best_min_votes')) return;
+                // фильм открыт из каталога «CUB Лучшее» — он прошёл отбор,
+                // бейдж показываем независимо от порога «Минимум реакций»
+                var from_catalog = typeof movie.cub_votes === 'number';
+
+                if (!res.r || (!from_catalog && res.n < pref('cub_best_min_votes'))) return;
                 if (line.find('.rate--cub').length) return;
 
                 var emoji = '';
@@ -1248,6 +1279,13 @@
 
         Lampa.SettingsApi.addParam({
             component: PLUGIN,
+            param: { name: 'cub_best_head', type: 'trigger', default: DEFAULTS.cub_best_head },
+            field: { name: 'Кнопка в верхней панели', description: 'Звезда «CUB Лучшее» рядом с поиском — раздел в один клик' },
+            onChange: syncHeadButton
+        });
+
+        Lampa.SettingsApi.addParam({
+            component: PLUGIN,
             param: {
                 name: 'cub_best_min_votes',
                 type: 'select',
@@ -1393,8 +1431,58 @@
         if (changed) Lampa.Storage.set('plugins', list);
     }
 
+    // Основной источник каталога — не TMDB и не CUB: у карточек чужие id,
+    // реакции CUB к ним не привязать, плагин на плитках молчит, и человек
+    // решает, что он сломан (реальный кейс из чата). Один раз за всё время
+    // вежливо предлагаем переключить источник на CUB. Молча перещёлкивать
+    // нельзя: настройка глобальная и могла быть выбрана осознанно.
+    function offerSourceSwitch() {
+        try {
+            var src = Lampa.Storage.field('source');
+
+            if (!src || src === 'tmdb' || src === 'cub') return;
+            if (Lampa.Storage.get('cub_best_source_offer', '')) return;
+
+            Lampa.Storage.set('cub_best_source_offer', '1');
+
+            var enabled = Lampa.Controller.enabled();
+            var back = enabled && enabled.name ? enabled.name : 'content';
+
+            Lampa.Select.show({
+                title: 'CUB Лучшее',
+                items: [
+                    {
+                        title: 'Переключить источник на CUB',
+                        subtitle: 'Сейчас основной источник — «' + src + '»: рейтинг реакций к нему не привязывается. CUB — тот же каталог TMDB, рейтинг заработает везде. Потребуется перезапуск',
+                        value: 'switch'
+                    },
+                    {
+                        title: 'Оставить как есть',
+                        subtitle: 'Рейтинг CUB будет работать только внутри раздела «CUB Лучшее», плитки останутся со штатным рейтингом',
+                        value: 'keep'
+                    }
+                ],
+                onBack: function () {
+                    Lampa.Controller.toggle(back);
+                },
+                onSelect: function (a) {
+                    if (a.value === 'switch') {
+                        Lampa.Storage.set('source', 'cub');
+                        Lampa.Noty.show('Основной источник переключён на CUB — перезапустите Lampa');
+                    }
+
+                    Lampa.Controller.toggle(back);
+                }
+            });
+        } catch (e) {
+            console.log('CUB Лучшее', 'source offer error', e);
+        }
+    }
+
     function startPlugin() {
         console.log('CUB Лучшее', 'v' + VERSION + ' запущен');
+
+        setTimeout(offerSourceSwitch, 5000);
 
         Lampa.Storage.set('cub_rating_cache', '{}');    // чистим кэши старых версий
         Lampa.Storage.set('cub_rating_cache_v2', '{}');
@@ -1412,6 +1500,7 @@
 
         addSettings();
         addMenuButton();
+        syncHeadButton();
         if (pref('cub_best_cards')) startCards();
         startFull();
 
