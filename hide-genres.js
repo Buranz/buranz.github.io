@@ -16,7 +16,7 @@
     if (window.plugin_hide_genres_ready) return;
     window.plugin_hide_genres_ready = true;
 
-    var VERSION = '1.1.0';
+    var VERSION = '1.1.1';
     var NAME = 'Скрыть жанры';
     var HIDDEN_CLASS = 'hide-genres--hidden';
     var MYSTERY_ID = 9648;
@@ -25,7 +25,7 @@
     // (у сериалов своя сетка id). mystic/detective — виртуальные жанры
     // поверх 9648, разводятся ключевиками.
     var GENRES = [
-        { key: '27',        main: 27,    also: [],      title: 'Ужасы' },
+        { key: '27',        main: 27,    also: [],      title: 'Ужасы', def: 'hide' },
         { key: 'mystic',                                title: 'Мистика' },
         { key: 'detective',                             title: 'Детективы' },
         { key: '53',        main: 53,    also: [],      title: 'Триллеры' },
@@ -61,8 +61,8 @@
     }
 
     // Селект «Показывать/Скрывать»; true/'true' — наследие тумблера v1.0.0
-    function genreHidden(key) {
-        var v = Lampa.Storage.get(key, 'show');
+    function genreHidden(key, dflt) {
+        var v = Lampa.Storage.get(key, dflt || 'show');
         return v === 'hide' || v === true || v === 'true';
     }
 
@@ -70,7 +70,7 @@
         blocked = {};
         for (var i = 0; i < GENRES.length; i++) {
             var g = GENRES[i];
-            if (g.main && genreHidden(settingKey(g.key))) {
+            if (g.main && genreHidden(settingKey(g.key), g.def)) {
                 blocked[g.main] = true;
                 for (var j = 0; j < g.also.length; j++) blocked[g.also[j]] = true;
             }
@@ -361,7 +361,7 @@
                             show: 'Показывать',
                             hide: 'Скрывать'
                         },
-                        'default': 'show'
+                        'default': g.def || 'show'
                     },
                     field: {
                         name: g.title
