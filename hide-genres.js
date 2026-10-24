@@ -16,7 +16,7 @@
     if (window.plugin_hide_genres_ready) return;
     window.plugin_hide_genres_ready = true;
 
-    var VERSION = '1.1.1';
+    var VERSION = '1.1.2';
     var NAME = 'Скрыть жанры';
     var HIDDEN_CLASS = 'hide-genres--hidden';
     var MYSTERY_ID = 9648;
@@ -299,8 +299,62 @@
     }
 
     // ------------------------------------------------------------------
-    //  Наблюдатель за появлением карточек
+    //  Ловим карточки в точке создания: все плитки Lampa рождаются через
+    //  Lampa.Template.js('card', data) / Template.get('card', data) —
+    //  оборачиваем их и получаем элемент вместе с данными без наблюдения
+    //  за DOM. Обработка откладывается на тик, чтобы карточка успела
+    //  встать в DOM (проверка «мы в поиске?» ходит по родителям).
+    //  MutationObserver остаётся только фолбэком на случай сборки Lampa,
+    //  где карточки создаются иначе.
     // ------------------------------------------------------------------
+
+    var newCards = [];
+    var newCardsTimer = null;
+
+    function queueCard(el, data) {
+        if (!el || !el.classList || !data || typeof data !== 'object') return;
+        if (!el.card_data) el.card_data = data;
+
+        newCards.push(el);
+        if (!newCardsTimer) newCardsTimer = setTimeout(flushNewCards, 0);
+    }
+
+    function flushNewCards() {
+        newCardsTimer = null;
+        var list = newCards;
+        newCards = [];
+        for (var i = 0; i < list.length; i++) processCard(list[i]);
+    }
+
+    function hookTemplates() {
+        var hooked = false;
+
+        if (Lampa.Template && typeof Lampa.Template.js === 'function') {
+            var origJs = Lampa.Template.js;
+            Lampa.Template.js = function (name, data) {
+                var elem = origJs.apply(this, arguments);
+                try {
+                    if (name === 'card') queueCard(elem, data);
+                } catch (e) {}
+                return elem;
+            };
+            hooked = true;
+        }
+
+        if (Lampa.Template && typeof Lampa.Template.get === 'function') {
+            var origGet = Lampa.Template.get;
+            Lampa.Template.get = function (name, data) {
+                var res = origGet.apply(this, arguments);
+                try {
+                    if (name === 'card') queueCard(res && res.jquery ? res[0] : res, data);
+                } catch (e) {}
+                return res;
+            };
+            hooked = true;
+        }
+
+        return hooked;
+    }
 
     function startObserver() {
         var observer = new MutationObserver(function (mutations) {
@@ -319,6 +373,15 @@
         });
 
         observer.observe(document.body, { childList: true, subtree: true });
+    }
+
+    // Страховка: пересканирование при смене экранов — дёшево и
+    //  подбирает всё, что могло родиться мимо шаблонов.
+    var rescanTimer = null;
+
+    function rescanSoon() {
+        if (rescanTimer) clearTimeout(rescanTimer);
+        rescanTimer = setTimeout(rescanAll, 200);
     }
 
     function addStyle() {
@@ -415,7 +478,13 @@
         addStyle();
         addSettings();
         registerName();
-        startObserver();
+
+        var hooked = hookTemplates();
+        if (!hooked) startObserver();
+
+        Lampa.Listener.follow('activity', rescanSoon);
+        Lampa.Listener.follow('full', rescanSoon);
+
         rescanAll();
 
         // Ловим смену настроек, в том числе из других мест
@@ -423,7 +492,7 @@
             if (e.name && e.name.indexOf('hide_genres_') === 0) rescanAll();
         });
 
-        log('v' + VERSION + ' запущен');
+        log('v' + VERSION + ' запущен, режим: ' + (hooked ? 'события (Template)' : 'MutationObserver (фолбэк)'));
     }
 
     if (window.appready) start();
