@@ -16,7 +16,7 @@
     if (window.plugin_hide_genres_ready) return;
     window.plugin_hide_genres_ready = true;
 
-    var VERSION = '1.1.2';
+    var VERSION = '1.1.4';
     var NAME = 'Скрыть жанры';
     var HIDDEN_CLASS = 'hide-genres--hidden';
     var MYSTERY_ID = 9648;
@@ -437,6 +437,53 @@
         }
     }
 
+    // ------------------------------------------------------------------
+    //  Железобетон для сборок, где зарегистрированный через SettingsApi
+    //  компонент в меню настроек не отрисовывается (форки, ТВ-боксы):
+    //  на каждом открытии главного экрана настроек проверяем, есть ли
+    //  наш пункт, и если нет — дорисовываем его в список руками.
+    //  В нормальной Lampa пункт уже есть, и этот код молчит.
+    // ------------------------------------------------------------------
+
+    function openOwnSettings() {
+        try { Lampa.Settings.create('hide_genres'); } catch (e) {}
+    }
+
+    function hookSettingsOpen() {
+        if (!Lampa.Settings || !Lampa.Settings.listener) return;
+
+        Lampa.Settings.listener.follow('open', function (e) {
+            try {
+                if (e.name !== 'main' || !e.body) return;
+                if (e.body.find('[data-component="hide_genres"]').length) return;
+
+                var item = $(
+                    '<div class="settings-folder selector" data-component="hide_genres">' +
+                        '<div class="settings-folder__icon">' + icon() + '</div>' +
+                        '<div class="settings-folder__name">' + NAME + '</div>' +
+                    '</div>'
+                );
+
+                var about = e.body.find('[data-component="about"]');
+                if (about.length) about.before(item);
+                else e.body.append(item);
+
+                // hover:enter — нативный DOM-event Lampa (пульт/Enter),
+                // click — мышь/тач; от двойного срабатывания — флажок
+                var opening = false;
+                var openOnce = function () {
+                    if (opening) return;
+                    opening = true;
+                    setTimeout(function () { opening = false; }, 500);
+                    openOwnSettings();
+                };
+
+                item[0].addEventListener('hover:enter', openOnce);
+                item[0].addEventListener('click', openOnce);
+            } catch (err) {}
+        });
+    }
+
     // Миграция с версий до 1.1.0: общий пункт «Мистика и детективы»
     // (ключ 9648) раскладывается на оба новых.
     function migrate() {
@@ -482,6 +529,8 @@
         var hooked = hookTemplates();
         if (!hooked) startObserver();
 
+        hookSettingsOpen();
+
         Lampa.Listener.follow('activity', rescanSoon);
         Lampa.Listener.follow('full', rescanSoon);
 
@@ -495,10 +544,25 @@
         log('v' + VERSION + ' запущен, режим: ' + (hooked ? 'события (Template)' : 'MutationObserver (фолбэк)'));
     }
 
-    if (window.appready) start();
+    // Грабли Android-сборок: плагин может загрузиться ПОСЛЕ события
+    // app ready, а window.appready выставляют не все сборки — тогда
+    // старт по событию не случится никогда. Поэтому: событие + таймеры
+    // как страховка, от двойного запуска бережёт booted.
+    var booted = false;
+
+    function boot() {
+        if (booted) return;
+        if (!window.Lampa || !Lampa.SettingsApi || !Lampa.Storage) return;
+        booted = true;
+        start();
+    }
+
+    if (window.appready) boot();
     else {
         Lampa.Listener.follow('app', function (e) {
-            if (e.type === 'ready') start();
+            if (e.type === 'ready') boot();
         });
+        setTimeout(boot, 1000);
+        setTimeout(boot, 3000);
     }
 })();
